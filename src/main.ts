@@ -2,14 +2,13 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { execSync } from "child_process";
 import path from "path";
 
-let isDev = false;
-
+let isDev = false; // Default to production
 import("electron-is-dev")
   .then((mod) => {
     isDev = mod.default;
     console.log("Running in Development Mode:", isDev);
   })
-  .catch(() => console.log("Failed to load electron-is-dev, assuming production."));
+  .catch(() => console.log("⚠️ Failed to load electron-is-dev, assuming production."));
 
 
 console.log("Electron is starting... Looking for main.js at:", __dirname);
@@ -35,6 +34,30 @@ function getGitInfo() {
   }
 }
 
+const appURL = isDev
+  ? "http://localhost:5173"
+  : `file://${path.join(__dirname, "index.html")}`;
+
+async function loadApp(window: BrowserWindow) {
+  console.log("Loading app from:", appURL);
+
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (attempts < maxAttempts) {
+    try {
+      await window.loadURL(appURL);
+      console.log("App loaded successfully.");
+      return;
+    } catch (err) {
+      console.error(`Attempt ${attempts + 1} failed to load app:`, err);
+      attempts++;
+      await new Promise((res) => setTimeout(res, 2000)); // Wait 2 seconds
+    }
+  }
+  console.error("Failed to load the app after multiple attempts.");
+}
+
 app.whenReady().then(() => {
   mainWindow = new BrowserWindow({
     width: 800,
@@ -48,18 +71,22 @@ app.whenReady().then(() => {
     },
   });
 
-  const appURL = isDev
-    ? "http://localhost:5173"
-    : `file://${path.join(__dirname, "../dist/index.html")}`;
+  loadApp(mainWindow)
 
-  mainWindow.loadURL(appURL);
 
-  mainWindow.webContents.once("did-finish-load", () => {
-    mainWindow?.webContents.send("branch-data", getGitInfo());
-  });
 });
 
 // Listen for frontend requests
 ipcMain.on("request-branch-update", (event) => {
   event.sender.send("branch-data", getGitInfo());
+});
+
+// Handle window minimize request
+ipcMain.on("window-minimize", () => {
+  mainWindow?.minimize();
+});
+
+// Handle window close request
+ipcMain.on("window-close", () => {
+  mainWindow?.close();
 });
